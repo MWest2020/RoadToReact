@@ -1,183 +1,246 @@
-import React, {useState, useEffect, useRef} from 'react';
-// import './App.css';
+import React, { useState } from 'react';
+import axios from 'axios';
+
+import styles from './App.module.css';
+import {ReactComponent as Check} from './check.svg';
 
 
-// NOTES FOR AFTER EVERYTHING
-//
-// Refactor all components in separate files
-const initialStories = [
-  {
-    title: 'React',
-    url: 'https://reactjs.org/',
-    author: 'Jordan Walke',
-    num_comments: 3,
-    points: 4,
-    objectID: 0,
-  },
-  {
-    title: 'Redux',
-    url: 'https://redux.js.org/',
-    author: 'Dan Abramov, Andrew Clark',
-    num_comments: 2,
-    points: 5,
-    objectID: 1,
-  },
-];
+const API_ENDPOINT = 'https://hn.algolia.com/api/v1/search?query=';
 
 
-const getAsyncStories = () =>
-  new Promise(resolve =>
-    setTimeout(
-      () => resolve({ data: { stories: initialStories } }),
-      2000
-    )
+
+const useSemiPersistentState = (key, initialState) => {
+  const isMounted = React.useRef(false);
+
+  const [value, setValue] = React.useState(
+    localStorage.getItem(key) || initialState
   );
 
-//CUSTOM HOOK
-const useSemiPersistentState = ( key, initialState) => {
-    
-  const [value, setValue] = useState(
-    localStorage.getItem( key )|| initialState
-    );
-    
-  useEffect(() => {
-    localStorage.setItem( key , value)
-  },[value, key])
+  React.useEffect(() => {
+    if(!isMounted.current){
+      isMounted.current = true;
+    }else{
+      console.log('A');
+    localStorage.setItem(key, value);
+  }}, [value, key]);
 
-  return [value, setValue]
+  return [value, setValue];
+};
+
+const storiesReducer = (state, action) => {
+  switch (action.type) {
+    case 'STORIES_FETCH_INIT':
+      return {
+        ...state,
+        isLoading: true,
+        isError: false,
+      };
+    case 'STORIES_FETCH_SUCCESS':
+      return {
+        ...state,
+        isLoading: false,
+        isError: false,
+        data: action.payload,
+      };
+    case 'STORIES_FETCH_FAILURE':
+      return {
+        ...state,
+        isLoading: false,
+        isError: true,
+      };
+    case 'REMOVE_STORY':
+      return {
+        ...state,
+        data: state.data.filter(
+          story => action.payload.objectID !== story.objectID
+        ),
+      };
+    default:
+      throw new Error();
   }
+};
 
 const App = () => {
+  const [searchTerm, setSearchTerm] = useSemiPersistentState(
+    'search',
+    'React'
+  );
 
-  
-    
+const [url, setUrl] = useState(`${API_ENDPOINT}${searchTerm}`)
 
-  const [searchTerm, setSearchTerm] = useSemiPersistentState('search', 'React');  
-  
-  const [stories, setStories] = useState([]);
+  const [stories, dispatchStories] = React.useReducer(
+    storiesReducer,
+    { data: [], isLoading: false, isError: false }
+  );
 
-  
+  const handleFetchStories = React.useCallback( async() => {
 
-  useEffect(() => {
-    getAsyncStories().then(result => {
-      setStories(result.data.stories);
+    // Loading...
+    dispatchStories({ type: 'STORIES_FETCH_INIT' });
+
+    //Loading...
+    try {
+      const result =  await axios.get(url);
+      // Updating state and rendering html      
+      dispatchStories({
+        type: 'STORIES_FETCH_SUCCESS',
+        payload: result.data.hits,
+      });
+    } catch (e) {
+      console.log(e);
+      dispatchStories({ type: 'STORIES_FETCH_FAILURE' })
+    }
+  }, [url]);
+
+  React.useEffect(()=>{
+    handleFetchStories();
+  }, [handleFetchStories])
+
+
+
+
+
+  const handleRemoveStory = React.useCallback(item => {
+    dispatchStories({
+      type: 'REMOVE_STORY',
+      payload: item,
     });
-  }, []);
+  },[]);
 
-
-
-  // function that handles removal of stories
-  // @param item takes a object as argument, instead of id.
-  const handleRemoveStory = ( item ) => {
-    const newStories = stories.filter(story => item.objectID !== story.objectID);
-
-    setStories(newStories);
-  }
-
-
-  const handleSearch = event => {
+  const handleSearchInput = event => {
     setSearchTerm(event.target.value);
-    localStorage.setItem('search', event.target.value)
+  };
+  const handleSearchSubmit = (event) => {
+    setUrl(`${API_ENDPOINT}${searchTerm}`);
+    event.preventDefault();
   }
-
-  const searchStories = stories.filter(story => 
-      story.title
-      .toLowerCase()
-      .includes(searchTerm.toLowerCase())
-  )
   
 
-   return (
-    <div className="App">
-      <h1>My Hacker Stories</h1>
+//EXPENSIVE RUN EXAMPLE
 
-      <InputWithLabel
-        id="search"
-        label="search"
-        value={searchTerm} 
-        onInputChange={handleSearch}
-        isFocused
-      > 
-      <strong>Search: </strong> 
-      </InputWithLabel>
 
-      <hr/>
-      {/* onRemoveItem is the attribute/ prop that calls the handleRemoveStory variable in which the function is stored. */}
-      <List 
-        list={searchStories} 
-        onRemoveItem={handleRemoveStory}/>
-      
+
+
+
+
+
+
+
+
+  console.log('B:App');
+  return (
+    <div className={styles.container}>
+      <h1 className={styles.headlinePrimary}>My Hacker Stories</h1>
+
+     <SearchForm
+       searchTerm={searchTerm}
+       onSearchInput={handleSearchInput}
+       onSearchSubmit={handleSearchSubmit}
+      />
+
+      <hr />
+
+      {stories.isError && <p>Something went wrong ...</p>}
+
+      {stories.isLoading ? (
+        <p>Loading ...</p>
+      ) : (
+        <List
+          list={stories.data}
+          onRemoveItem={handleRemoveStory}
+        />
+      )}
     </div>
   );
-}
+};
 
 const InputWithLabel = ({
-  id, 
+  id,
   value,
-  type = 'text', //default value 
+  type = 'text',
   onInputChange,
   isFocused,
   children,
-  }) => {
-    
-    //imperative programming of the autofocus
-    const inputRef = useRef();
+}) => {
+  const inputRef = React.useRef();
 
-    useEffect(() =>{
-      if(isFocused && inputRef.current){
-        inputRef.current.focus();
-      }
-    }, [isFocused])
+  React.useEffect(() => {
+    if (isFocused) {
+      inputRef.current.focus();
+    }
+  }, [isFocused]);
 
   return (
     <>
-      <label htmlFor={id}>{children}</label>  
-      <input 
-        id={id} 
+      <label htmlFor={id} className={styles.label}>{children} </label>
+      &nbsp;
+      <input
+        ref={inputRef}
+        id={id}
         type={type}
-        value={value} 
+        value={value}
         onChange={onInputChange}
-        ref={inputRef} 
-        />
-       <p>Searching for <strong>{value}</strong></p> 
+        className={styles.input}
+      />
     </>
+  );
+};
+
+const List = React.memo(({ list, onRemoveItem }) =>
+console.log('B:List') ||
+  list.map(item => (
+    <Item
+      key={item.objectID}
+      item={item}
+      onRemoveItem={onRemoveItem}
+    />
+  )));
+
+const Item = ({ item, onRemoveItem }) => (
+  <div className={styles.item}>
+    <span style={{width: '40%'}}>
+      <a href={item.url}>{item.title}</a>
+    </span>
+    <span style={{width: '30%'}}>{item.author}</span>
+    <span style={{width: '10%'}}>{item.num_comments}</span>
+    <span style={{width: '10%'}}>{item.points}</span>
+    <span style={{width: '10%'}}>
+      <button 
+      type="button" 
+      onClick={() => onRemoveItem(item)}
+      className={`${styles.button}${styles.buttonSmall}`}
+      >
+        <Check height="18px" width="18px" />
+      </button>
+    </span>
+  </div>
+);
+
+const SearchForm = ({
+  searchTerm,
+  onSearchInput,
+  onSearchSubmit
+}) => {
+  return (
+    <form onSubmit={onSearchSubmit} className={styles.SearchForm}>
+    <InputWithLabel
+      id="search"
+      value={searchTerm}
+      isFocused
+      onInputChange={onSearchInput}
+    >
+      <strong>Search:</strong>
+    </InputWithLabel>
+
+    <button 
+      type="submit" 
+      disabled={!searchTerm}
+      className={`${styles.button}${styles.buttonLarge}`}>
+      Submit
+    </button>
+  </form>
   )
 }
-
-
-// here we need to pass the handleRemoveStory function and we gain access through props. 
-const List = ({ list, onRemoveItem }) => 
-  list.map(item => 
-  <Item 
-    key={ item.objectID } 
-    item={item}
-    onRemoveItem={onRemoveItem}
-     />);
-
-
-// here we need to pass the handleRemoveStory function and we gain access through props. 
-const Item = ({item, onRemoveItem}) => {
-  
-
-  return (
-    <div>
-      <span>
-        <a href={item.url}>{item.title}</a></span>
-      <span>{item.author}</span>
-      <span>{item.num_comments}</span>
-      <span>{item.points}</span>
-      <span>
-        <button 
-          type="button" 
-          //here the handleRemoveStory's function logic is invoked, with the item as argument
-          onClick={() => onRemoveItem(item)}>Dismiss
-        </button>
-      </span>
-    </div>
-  );
-}
-
-
 
 
 export default App;
